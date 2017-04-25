@@ -127,6 +127,7 @@ func (s *scpHelperDelegate) Copy(r io.Reader, size int64, dstfile string) error 
 		if _, err = w.Write(b); err != nil {
 			return err
 		}
+		w.Flush()
 		r = cb
 		size = int64(cb.Len())
 	}
