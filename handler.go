@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -64,6 +65,9 @@ func (d SshDialer) Dial() (*ssh.Client, error) {
 	return ssh.Dial("tcp", d.SSHAddr, &ssh.ClientConfig{
 		Auth: []ssh.AuthMethod{authm},
 		User: d.SSHUser,
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			return nil
+		},
 	})
 }
 
