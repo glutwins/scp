@@ -25,7 +25,8 @@ func (err ErrTimes) Error() string {
 	return fmt.Sprintf("copy fail after try %d times: %s", err.times, err.err.Error())
 }
 
-type ScpHelper interface {
+// Helper helper for scp utility
+type Helper interface {
 	Copy(io.Reader, int64, string) error
 	CopyPath(string, string) error
 	MustCopy(io.Reader, int64, string)
@@ -37,14 +38,16 @@ type ScpHelper interface {
 	SetGzipEnable(bool)
 }
 
-type SshDialer struct {
+// Dialer ssh config
+type Dialer struct {
 	SSHUser string
 	SSHFile string
 	SSHPass string
 	SSHAddr string
 }
 
-func (d SshDialer) Dial() (*ssh.Client, error) {
+// Dial connect and auth ssh client
+func (d Dialer) Dial() (*ssh.Client, error) {
 	var authm ssh.AuthMethod
 	if d.SSHFile != "" {
 		b, err := ioutil.ReadFile(d.SSHFile)
@@ -72,15 +75,15 @@ func (d SshDialer) Dial() (*ssh.Client, error) {
 }
 
 type scpHelperDelegate struct {
-	dialer *SshDialer
+	dialer *Dialer
 	client *ssh.Client
 	lock   sync.RWMutex
 	flags  string
 	gzip   bool
 }
 
-// NewScpHelper New Scp Helper
-func NewScpHelper(dialer *SshDialer) ScpHelper {
+// NewHelper New Scp Helper
+func NewHelper(dialer *Dialer) Helper {
 	return &scpHelperDelegate{dialer: dialer}
 }
 
@@ -119,18 +122,25 @@ func (s *scpHelperDelegate) Copy(r io.Reader, size int64, dstfile string) error 
 	name := filepath.Base(dstfile)
 	path := filepath.Dir(dstfile)
 
+	b := make([]byte, 1024*1024)
+
 	if s.gzip {
 		name = name + ".gz"
 		cb := bytes.NewBuffer(nil)
 		w := gzip.NewWriter(cb)
-		b, err := ioutil.ReadAll(r)
-		if err != nil {
-			return err
+
+		for {
+			if n, err := r.Read(b); err == io.EOF {
+				break
+			} else if err != nil {
+				return err
+			} else {
+				if _, err = w.Write(b[0:n]); err != nil {
+					return err
+				}
+			}
 		}
 
-		if _, err = w.Write(b); err != nil {
-			return err
-		}
 		w.Flush()
 		r = cb
 		size = int64(cb.Len())
@@ -185,11 +195,11 @@ func (s scpHelperDelegate) openFile(filename string) (io.ReadCloser, int64, erro
 }
 
 func (s *scpHelperDelegate) CopyPath(srcfile, dstfile string) error {
-	if fd, size, err := s.openFile(srcfile); err == nil {
+	fd, size, err := s.openFile(srcfile)
+	if err == nil {
 		return s.Copy(fd, size, dstfile)
-	} else {
-		return err
 	}
+	return err
 }
 
 func (s *scpHelperDelegate) MustCopyPath(srcfile, dstfile string) {
@@ -201,11 +211,11 @@ func (s *scpHelperDelegate) MustCopyPath(srcfile, dstfile string) {
 }
 
 func (s *scpHelperDelegate) TryCopyPath(srcfile, dstfile string, trys int) error {
-	if fd, size, err := s.openFile(srcfile); err == nil {
-		return s.TryCopy(fd, size, dstfile, trys)
-	} else {
+	fd, size, err := s.openFile(srcfile)
+	if err != nil {
 		return err
 	}
+	return s.TryCopy(fd, size, dstfile, trys)
 }
 
 func (s *scpHelperDelegate) SetLimitKB(kbs int) {
